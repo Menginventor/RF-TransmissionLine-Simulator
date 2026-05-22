@@ -1,0 +1,982 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RF Transmission Line Simulator</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111318;
+      --panel: #1b2028;
+      --panel-2: #222936;
+      --text: #f2f5f8;
+      --muted: #aab4c0;
+      --grid: rgba(255, 255, 255, 0.12);
+      --voltage: #62d2ff;
+      --current: #ffbe5c;
+      --accent: #7be495;
+      --danger: #ff6b7a;
+      --border: rgba(255, 255, 255, 0.14);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(280px, 360px) 1fr;
+      overflow: hidden;
+    }
+
+    aside {
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 18px;
+      overflow-y: auto;
+      min-height: 0;
+    }
+
+    .stage {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      min-width: 0;
+      min-height: 0;
+      padding: 18px;
+      gap: 14px;
+    }
+
+    h1 {
+      margin: 0 0 4px;
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+
+    .byline {
+      margin: 0 0 8px;
+      color: var(--accent);
+      font-size: 13px;
+    }
+
+    .sub {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .subtle {
+      margin: -4px 0 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .group {
+      padding: 14px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .group:first-of-type {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .group-title {
+      margin: 0 0 10px;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    label {
+      display: grid;
+      gap: 7px;
+      margin: 12px 0;
+      color: var(--muted);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 92px;
+      align-items: center;
+      gap: 10px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    #xRange {
+      --fill-start: 50%;
+      --fill-end: 50%;
+      appearance: none;
+      height: 6px;
+      border-radius: 999px;
+      background: linear-gradient(
+        to right,
+        var(--panel-2) 0%,
+        var(--panel-2) var(--fill-start),
+        var(--accent) var(--fill-start),
+        var(--accent) var(--fill-end),
+        var(--panel-2) var(--fill-end),
+        var(--panel-2) 100%
+      );
+    }
+
+    #xRange::-webkit-slider-thumb {
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--text);
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+    }
+
+    #xRange::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--text);
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+    }
+
+    input[type="number"],
+    select {
+      width: 100%;
+      min-height: 34px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 6px 8px;
+      font: inherit;
+    }
+
+    .segmented {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: 1fr;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      overflow: hidden;
+    }
+
+    .segmented button {
+      min-height: 34px;
+      border: 0;
+      border-right: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .segmented button:last-child {
+      border-right: 0;
+    }
+
+    .segmented button.active {
+      background: var(--accent);
+      color: #07120c;
+      font-weight: 700;
+    }
+
+    .readouts {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(130px, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      min-width: 0;
+    }
+
+    .metric b {
+      display: block;
+      font-size: 18px;
+      font-weight: 750;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .plot-wrap {
+      position: relative;
+      min-height: 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #0d1016;
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .legend {
+      position: absolute;
+      left: 14px;
+      top: 12px;
+      display: flex;
+      gap: 14px;
+      color: var(--muted);
+      pointer-events: none;
+    }
+
+    .key {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .swatch {
+      width: 18px;
+      height: 3px;
+      border-radius: 999px;
+    }
+
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .footer-actions {
+      display: flex;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+
+    .button {
+      min-height: 36px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 7px 12px;
+      cursor: pointer;
+    }
+
+    .button:hover {
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    code {
+      color: var(--accent);
+    }
+
+    @media (max-width: 850px) {
+      main {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(210px, 38vh) minmax(0, 1fr);
+      }
+
+      aside {
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .stage {
+        padding: 12px;
+        gap: 10px;
+      }
+
+      .readouts {
+        grid-template-columns: repeat(2, minmax(120px, 1fr));
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <aside>
+      <h1>RF Line Simulator</h1>
+      <p class="byline">by E26BYK</p>
+      <p class="sub">Lossless <code>Z0 = 50 ohm</code> transmission line with analytical and RK4 numerical modes.</p>
+
+      <section class="group">
+        <p class="group-title">Solver</p>
+        <div class="segmented" aria-label="Solver mode">
+          <button type="button" class="active" data-mode="analytic">Analytical</button>
+          <button type="button" data-mode="numeric">Numerical RK4</button>
+        </div>
+        <label id="elementsControl" hidden>
+          RK elements
+          <select id="elements">
+            <option value="20">20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="200" selected>200</option>
+            <option value="400">400</option>
+            <option value="800">800</option>
+            <option value="1000">1000</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="group">
+        <p class="group-title">Source</p>
+        <label>
+          Reference frequency f0
+          <div class="row">
+            <input id="f0Range" type="range" min="10" max="3000" step="10" value="1000">
+            <input id="f0" type="number" min="10" max="3000" step="10" value="1000">
+          </div>
+        </label>
+        <label>
+          Drive frequency f
+          <div class="row">
+            <input id="fRange" type="range" min="10" max="3000" step="10" value="1000">
+            <input id="f" type="number" min="10" max="3000" step="10" value="1000">
+          </div>
+        </label>
+      </section>
+
+      <section class="group">
+        <p class="group-title">Transmission Line</p>
+        <p class="subtle"><code>Z0 = 50 ohm</code></p>
+        <label>
+          Velocity factor
+          <div class="row">
+            <input id="vfRange" type="range" min="0.3" max="1" step="0.01" value="0.66">
+            <input id="vf" type="number" min="0.3" max="1" step="0.01" value="0.66">
+          </div>
+        </label>
+        <label>
+          Line length (lambda)
+          <div class="row">
+            <input id="lenRange" type="range" min="0.05" max="5" step="0.05" value="1">
+            <input id="lenLambda" type="number" min="0.05" max="20" step="0.05" value="1">
+          </div>
+        </label>
+      </section>
+
+      <section class="group">
+        <p class="group-title">Load</p>
+        <div class="segmented" aria-label="Load presets">
+          <button type="button" class="active" data-preset="matched">50 ohm</button>
+          <button type="button" data-preset="open">Open</button>
+          <button type="button" data-preset="short">Short</button>
+        </div>
+        <label>
+          Resistance Rload
+          <div class="row">
+            <input id="rRange" type="range" min="1" max="500" step="1" value="50">
+            <input id="rLoad" type="number" min="0" max="1000000000" step="1" value="50">
+          </div>
+        </label>
+        <label>
+          Reactance Xload
+          <div class="row">
+            <input id="xRange" type="range" min="-500" max="500" step="1" value="0">
+            <input id="xLoad" type="number" min="-1000000" max="1000000" step="1" value="0">
+          </div>
+        </label>
+      </section>
+
+      <input id="amp" type="hidden" value="1">
+      <input id="ampRange" type="hidden" value="1">
+      <input id="speed" type="hidden" value="1">
+      <input id="speedRange" type="hidden" value="1">
+    </aside>
+
+    <section class="stage">
+      <div class="readouts">
+        <div class="metric"><b id="lengthOut">0.198 m</b><span>physical length</span></div>
+        <div class="metric"><b id="elecOut">360 deg</b><span>electrical length</span></div>
+        <div class="metric"><b id="gammaOut">0.000</b><span>|reflection coefficient|</span></div>
+        <div class="metric"><b id="vswrOut">1.00</b><span>VSWR</span></div>
+      </div>
+
+      <div class="plot-wrap">
+        <canvas id="plot"></canvas>
+        <div class="legend">
+          <span class="key"><span class="swatch" style="background: var(--voltage)"></span>Voltage</span>
+          <span class="key"><span class="swatch" style="background: var(--current)"></span>Current x 50 ohm</span>
+        </div>
+      </div>
+
+      <div class="footer">
+        <span id="modelOut" hidden></span>
+        <div class="footer-actions">
+          <button id="reset" class="button" type="button">Reset</button>
+          <button id="pause" class="button" type="button">Pause</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const Z0 = 50;
+    let N = 200;
+    const C0 = 299792458;
+    const TWO_PI = Math.PI * 2;
+
+    const ids = [
+      "elements", "f0", "f0Range", "f", "fRange", "vf", "vfRange", "rLoad", "rRange",
+      "lenLambda", "lenRange", "xLoad", "xRange", "amp", "ampRange", "speed", "speedRange"
+    ];
+    const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
+    const canvas = document.getElementById("plot");
+    const ctx = canvas.getContext("2d");
+    const pauseButton = document.getElementById("pause");
+    const resetButton = document.getElementById("reset");
+    const readouts = {
+      length: document.getElementById("lengthOut"),
+      elec: document.getElementById("elecOut"),
+      gamma: document.getElementById("gammaOut"),
+      vswr: document.getElementById("vswrOut"),
+      model: document.getElementById("modelOut")
+    };
+
+    const state = {
+      paused: false,
+      preset: "matched",
+      mode: "analytic",
+      t: 0,
+      simTime: 0,
+      lastFrame: performance.now(),
+      V: [],
+      I: [],
+      numericScale: 1,
+      numV: new Float64Array(0),
+      numI: new Float64Array(0),
+      numLoad: 0,
+      k1V: new Float64Array(0),
+      k1I: new Float64Array(0),
+      k1Load: 0,
+      k2V: new Float64Array(0),
+      k2I: new Float64Array(0),
+      k2Load: 0,
+      k3V: new Float64Array(0),
+      k3I: new Float64Array(0),
+      k3Load: 0,
+      k4V: new Float64Array(0),
+      k4I: new Float64Array(0),
+      k4Load: 0,
+      tempV: new Float64Array(0),
+      tempI: new Float64Array(0),
+      tempLoad: 0,
+      params: {}
+    };
+
+    function bindPair(numberId, rangeId, options = {}) {
+      const { resetOnChange = true } = options;
+      const number = el[numberId];
+      const range = el[rangeId];
+      number.addEventListener("input", () => {
+        range.value = Math.max(Number(range.min), Math.min(Number(range.max), Number(number.value)));
+        state.preset = "custom";
+        setPresetButton();
+        updateReactanceFill();
+        if (resetOnChange) resetNumerical();
+        updateModel();
+      });
+      range.addEventListener("input", () => {
+        number.value = range.value;
+        state.preset = "custom";
+        setPresetButton();
+        updateReactanceFill();
+        if (resetOnChange) resetNumerical();
+        updateModel();
+      });
+    }
+
+    bindPair("f0", "f0Range");
+    bindPair("f", "fRange");
+    bindPair("vf", "vfRange");
+    bindPair("lenLambda", "lenRange");
+    bindPair("rLoad", "rRange", { resetOnChange: false });
+    bindPair("xLoad", "xRange", { resetOnChange: false });
+    bindPair("amp", "ampRange", { resetOnChange: false });
+    bindPair("speed", "speedRange", { resetOnChange: false });
+
+    function allocateNumericalArrays(count) {
+      N = count;
+      state.numV = new Float64Array(N);
+      state.numI = new Float64Array(N);
+      state.k1V = new Float64Array(N);
+      state.k1I = new Float64Array(N);
+      state.k2V = new Float64Array(N);
+      state.k2I = new Float64Array(N);
+      state.k3V = new Float64Array(N);
+      state.k3I = new Float64Array(N);
+      state.k4V = new Float64Array(N);
+      state.k4I = new Float64Array(N);
+      state.tempV = new Float64Array(N);
+      state.tempI = new Float64Array(N);
+      resetNumerical();
+    }
+
+    el.elements.addEventListener("input", () => {
+      allocateNumericalArrays(Number(el.elements.value));
+      updateModel();
+    });
+
+    document.querySelectorAll("[data-preset]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.preset = button.dataset.preset;
+        if (state.preset === "matched") setLoad(50, 0);
+        if (state.preset === "open") setLoad(1e9, 0);
+        if (state.preset === "short") setLoad(0, 0);
+        setPresetButton();
+        updateModel();
+      });
+    });
+
+    document.querySelectorAll("[data-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.mode = button.dataset.mode;
+        setModeButton();
+        resetNumerical();
+        updateModel();
+      });
+    });
+
+    pauseButton.addEventListener("click", () => {
+      state.paused = !state.paused;
+      pauseButton.textContent = state.paused ? "Run" : "Pause";
+    });
+
+    resetButton.addEventListener("click", () => {
+      resetNumerical();
+      draw();
+    });
+
+    function setLoad(r, x) {
+      el.rLoad.value = r;
+      el.xLoad.value = x;
+      el.rRange.value = Math.max(Number(el.rRange.min), Math.min(Number(el.rRange.max), r));
+      el.xRange.value = Math.max(Number(el.xRange.min), Math.min(Number(el.xRange.max), x));
+      updateReactanceFill();
+    }
+
+    function updateReactanceFill() {
+      const min = Number(el.xRange.min);
+      const max = Number(el.xRange.max);
+      const value = Number(el.xRange.value);
+      const center = (0 - min) / (max - min) * 100;
+      const pos = (value - min) / (max - min) * 100;
+      el.xRange.style.setProperty("--fill-start", `${Math.min(center, pos)}%`);
+      el.xRange.style.setProperty("--fill-end", `${Math.max(center, pos)}%`);
+    }
+
+    function setPresetButton() {
+      document.querySelectorAll("[data-preset]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.preset === state.preset);
+      });
+    }
+
+    function setModeButton() {
+      document.querySelectorAll("[data-mode]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.mode === state.mode);
+      });
+      document.getElementById("elementsControl").hidden = state.mode !== "numeric";
+    }
+
+    function c(re, im = 0) {
+      return { re, im };
+    }
+
+    function add(a, b) {
+      return c(a.re + b.re, a.im + b.im);
+    }
+
+    function sub(a, b) {
+      return c(a.re - b.re, a.im - b.im);
+    }
+
+    function mul(a, b) {
+      return c(a.re * b.re - a.im * b.im, a.re * b.im + a.im * b.re);
+    }
+
+    function div(a, b) {
+      const d = b.re * b.re + b.im * b.im;
+      return c((a.re * b.re + a.im * b.im) / d, (a.im * b.re - a.re * b.im) / d);
+    }
+
+    function abs(a) {
+      return Math.hypot(a.re, a.im);
+    }
+
+    function expj(theta) {
+      return c(Math.cos(theta), Math.sin(theta));
+    }
+
+    function formatOhms(z) {
+      if (z.re > 1e8) return "open";
+      const sign = z.im >= 0 ? "+" : "-";
+      return `${z.re.toFixed(1)} ${sign} j${Math.abs(z.im).toFixed(1)} ohm`;
+    }
+
+    function updateModel() {
+      const f0 = Number(el.f0.value) * 1e6;
+      const f = Number(el.f.value) * 1e6;
+      const vf = Number(el.vf.value);
+      const lenLambda = Number(el.lenLambda.value);
+      const vp = C0 * vf;
+      const length = lenLambda * vp / f0;
+      const dz = length / N;
+      const beta = TWO_PI * f / vp;
+      const omega = TWO_PI * f;
+      const amp = Number(el.amp.value);
+      const rawRLoad = Number(el.rLoad.value);
+      const zLoad = c(rawRLoad, Number(el.xLoad.value));
+      const isNumericShort = state.mode === "numeric" && rawRLoad <= 0 && Number(el.xLoad.value) === 0;
+      const rLoad = isNumericShort ? 0 : Math.max(0.05, rawRLoad);
+      const xLoad = Number(el.xLoad.value);
+      const gamma = div(sub(zLoad, c(Z0)), add(zLoad, c(Z0)));
+      const effectiveLoad = state.mode === "analytic" ? zLoad : c(rLoad, xLoad);
+      const gammaReadout = div(sub(effectiveLoad, c(Z0)), add(effectiveLoad, c(Z0)));
+      const gammaMag = Math.min(abs(gammaReadout), 0.999999);
+      const lPerM = Z0 / vp;
+      const cPerM = 1 / (Z0 * vp);
+      const lCell = lPerM * dz;
+      const cCell = cPerM * dz;
+      const rs = Z0;
+      const loadL = xLoad > 0 ? xLoad / omega : 0;
+      const loadC = xLoad < 0 ? -1 / (omega * xLoad) : 0;
+      const dtLine = 0.28 * dz / vp;
+      const dtLoadR = isNumericShort ? Infinity : 0.18 * rLoad * cCell;
+      const dtLoadL = loadL > 0 ? 0.18 * Math.sqrt(loadL * cCell) : Infinity;
+      const dtLoadC = loadC > 0 ? 0.18 * Math.sqrt(lCell * loadC) : Infinity;
+      const dtStable = Math.min(dtLine, dtLoadR, dtLoadL, dtLoadC);
+      const dtSource = 1 / Math.max(80 * f, 1);
+      const dtNum = Math.min(dtStable, dtSource);
+
+      const V = [];
+      const I = [];
+
+      if (state.mode === "analytic") {
+        const Vplus = c(amp / 2, 0);
+        const analyticPoints = 401;
+        for (let k = 0; k < analyticPoints; k++) {
+          const z = length * k / (analyticPoints - 1);
+          const forward = mul(Vplus, expj(-beta * z));
+          const reflectedAtSourceFactor = mul(gamma, expj(-2 * beta * length));
+          const reflected = mul(mul(Vplus, reflectedAtSourceFactor), expj(beta * z));
+          const vk = add(forward, reflected);
+          const ik = div(sub(forward, reflected), c(Z0));
+          V.push(vk);
+          I.push(ik);
+        }
+      }
+
+      const elecDeg = 360 * lenLambda * f / f0;
+      const vswr = gammaMag >= 0.999 ? Infinity : (1 + gammaMag) / (1 - gammaMag);
+      readouts.length.textContent = `${length.toPrecision(4)} m`;
+      readouts.elec.textContent = `${elecDeg.toFixed(1)} deg`;
+      readouts.gamma.textContent = gammaMag.toFixed(3);
+      readouts.vswr.textContent = Number.isFinite(vswr) ? vswr.toFixed(2) : "infinite";
+      if (state.mode === "analytic") {
+        readouts.model.textContent = `Analytical phasor, length ${lenLambda.toFixed(2)} lambda0, load ${formatOhms(zLoad)}, f/f0 = ${(f / f0).toFixed(3)}`;
+      } else {
+        const xNote = xLoad > 0 ? `, series L = ${loadL.toExponential(3)} H` : xLoad < 0 ? `, series C = ${loadC.toExponential(3)} F` : "";
+        const loadText = isNumericShort ? "short boundary" : `Rload = ${rLoad.toPrecision(4)} ohm${xNote}`;
+        readouts.model.textContent = `Numerical RK4, ${N} elements, length ${lenLambda.toFixed(2)} lambda0, Rs = 50 ohm, ${loadText}`;
+      }
+
+      state.V = V;
+      state.I = I;
+      state.params = { omega, f, f0, length, dz, gammaMag, amp, rLoad, xLoad, loadL, loadC, lCell, cCell, rs, dtNum, isNumericShort };
+      draw();
+    }
+
+    function resetNumerical() {
+      state.numV.fill(0);
+      state.numI.fill(0);
+      state.numLoad = 0;
+      state.numericScale = Math.max(0.001, Number(el.amp.value));
+      state.simTime = 0;
+      state.t = 0;
+    }
+
+    function sourceAt(t) {
+      return state.params.amp * Math.sin(state.params.omega * t);
+    }
+
+    function loadCurrentAndDerivative(vLast, loadState) {
+      const { rLoad, xLoad, loadL, loadC, isNumericShort } = state.params;
+
+      if (isNumericShort) {
+        return {
+          iLoad: 0,
+          dLoad: 0
+        };
+      }
+
+      if (xLoad > 0) {
+        const iLoad = loadState;
+        return {
+          iLoad,
+          dLoad: (vLast - rLoad * iLoad) / loadL
+        };
+      }
+
+      if (xLoad < 0) {
+        const iLoad = (vLast - loadState) / rLoad;
+        return {
+          iLoad,
+          dLoad: iLoad / loadC
+        };
+      }
+
+      return {
+        iLoad: vLast / rLoad,
+        dLoad: 0
+      };
+    }
+
+    function numericalDerivatives(t, v, i, loadState, dv, di) {
+      const { lCell, cCell, rs, isNumericShort } = state.params;
+      const vs = sourceAt(t);
+      const load = loadCurrentAndDerivative(v[N - 1], loadState);
+
+      for (let k = 0; k < N; k++) {
+        const leftVoltage = k === 0 ? vs - rs * i[k] : v[k - 1];
+        const rightVoltage = isNumericShort && k === N - 1 ? 0 : v[k];
+        di[k] = (leftVoltage - rightVoltage) / lCell;
+      }
+
+      for (let k = 0; k < N; k++) {
+        if (isNumericShort && k === N - 1) {
+          dv[k] = 0;
+        } else {
+          const nextCurrent = k === N - 1 ? load.iLoad : i[k + 1];
+          dv[k] = (i[k] - nextCurrent) / cCell;
+        }
+      }
+
+      return load.dLoad;
+    }
+
+    function rk4Step(dt) {
+      const p = state.params;
+      const v = state.numV;
+      const i = state.numI;
+      const tv = state.tempV;
+      const ti = state.tempI;
+
+      state.k1Load = numericalDerivatives(state.simTime, v, i, state.numLoad, state.k1V, state.k1I);
+      for (let k = 0; k < N; k++) {
+        tv[k] = v[k] + 0.5 * dt * state.k1V[k];
+        ti[k] = i[k] + 0.5 * dt * state.k1I[k];
+      }
+      state.tempLoad = state.numLoad + 0.5 * dt * state.k1Load;
+
+      state.k2Load = numericalDerivatives(state.simTime + 0.5 * dt, tv, ti, state.tempLoad, state.k2V, state.k2I);
+      for (let k = 0; k < N; k++) {
+        tv[k] = v[k] + 0.5 * dt * state.k2V[k];
+        ti[k] = i[k] + 0.5 * dt * state.k2I[k];
+      }
+      state.tempLoad = state.numLoad + 0.5 * dt * state.k2Load;
+
+      state.k3Load = numericalDerivatives(state.simTime + 0.5 * dt, tv, ti, state.tempLoad, state.k3V, state.k3I);
+      for (let k = 0; k < N; k++) {
+        tv[k] = v[k] + dt * state.k3V[k];
+        ti[k] = i[k] + dt * state.k3I[k];
+      }
+      state.tempLoad = state.numLoad + dt * state.k3Load;
+
+      state.k4Load = numericalDerivatives(state.simTime + dt, tv, ti, state.tempLoad, state.k4V, state.k4I);
+      for (let k = 0; k < N; k++) {
+        v[k] += dt * (state.k1V[k] + 2 * state.k2V[k] + 2 * state.k3V[k] + state.k4V[k]) / 6;
+        i[k] += dt * (state.k1I[k] + 2 * state.k2I[k] + 2 * state.k3I[k] + state.k4I[k]) / 6;
+      }
+      if (state.params.isNumericShort) v[N - 1] = 0;
+      state.numLoad += dt * (state.k1Load + 2 * state.k2Load + 2 * state.k3Load + state.k4Load) / 6;
+      state.simTime += dt;
+      state.t = state.simTime;
+    }
+
+    function advanceNumerical(realDt) {
+      const visualCyclesPerSecond = Number(el.speed.value);
+      const targetAdvance = realDt * visualCyclesPerSecond / state.params.f;
+      const maxAdvance = 4 / state.params.f;
+      let remaining = Math.min(targetAdvance, maxAdvance);
+      let guard = 0;
+
+      while (remaining > 0 && guard < 6000) {
+        const dt = Math.min(state.params.dtNum, remaining);
+        rk4Step(dt);
+        remaining -= dt;
+        guard++;
+      }
+    }
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      draw();
+    }
+
+    function drawGrid(w, h, pad) {
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--grid");
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i <= 8; i++) {
+        const x = pad.left + (w - pad.left - pad.right) * i / 8;
+        ctx.moveTo(x, pad.top);
+        ctx.lineTo(x, h - pad.bottom);
+      }
+      for (let i = 0; i <= 6; i++) {
+        const y = pad.top + (h - pad.top - pad.bottom) * i / 6;
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(w - pad.right, y);
+      }
+      ctx.stroke();
+    }
+
+    function drawTrace(values, color, scale, phase, markersOnly) {
+      const rect = canvas.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+      const pad = { left: 58, right: 58, top: 46, bottom: 38 };
+      const plotW = w - pad.left - pad.right;
+      const midY = pad.top + (h - pad.top - pad.bottom) / 2;
+      const ampY = (h - pad.top - pad.bottom) * 0.42;
+
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = 2.5;
+      if (!markersOnly) ctx.beginPath();
+
+      values.forEach((phasor, k) => {
+        const instant = phasor.re * Math.cos(phase) - phasor.im * Math.sin(phase);
+        const x = pad.left + plotW * k / (values.length - 1);
+        const y = midY - ampY * instant / scale;
+        if (markersOnly) {
+          ctx.beginPath();
+          ctx.arc(x, y, 2.1, 0, TWO_PI);
+          ctx.fill();
+        } else if (k === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      });
+
+      if (!markersOnly) ctx.stroke();
+    }
+
+    function drawAxes(w, h, pad) {
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.42)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      const midY = pad.top + (h - pad.top - pad.bottom) / 2;
+      ctx.moveTo(pad.left, midY);
+      ctx.lineTo(w - pad.right, midY);
+      ctx.moveTo(pad.left, pad.top);
+      ctx.lineTo(pad.left, h - pad.bottom);
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(242, 245, 248, 0.75)";
+      ctx.font = "20px system-ui, sans-serif";
+      ctx.save();
+      ctx.translate(20, midY);
+      ctx.rotate(-Math.PI / 2);
+      ctx.textAlign = "center";
+      ctx.fillText("Source", 0, 0);
+      ctx.restore();
+      ctx.save();
+      ctx.translate(w - 20, midY);
+      ctx.rotate(-Math.PI / 2);
+      ctx.textAlign = "center";
+      ctx.fillText("Load", 0, 0);
+      ctx.restore();
+      ctx.textAlign = "left";
+    }
+
+    function draw() {
+      const rect = canvas.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+      if (!w || !h || !state.params.omega) return;
+
+      const pad = { left: 58, right: 58, top: 46, bottom: 38 };
+      ctx.clearRect(0, 0, w, h);
+      drawGrid(w, h, pad);
+      drawAxes(w, h, pad);
+
+      const phase = state.t * state.params.omega;
+      const voltageTrace = state.mode === "analytic"
+        ? state.V
+        : Array.from(state.numV, (value) => c(value));
+      const currentTrace = state.mode === "analytic"
+        ? state.I.map((i) => c(i.re * Z0, i.im * Z0))
+        : Array.from(state.numI, (value) => c(value * Z0));
+      const maxV = Math.max(0.001, ...voltageTrace.map(abs));
+      const maxIZ = Math.max(0.001, ...currentTrace.map(abs));
+      let scale = Math.max(maxV, maxIZ);
+      if (state.mode === "numeric") {
+        state.numericScale = Math.max(state.numericScale * 0.998, scale, Number(el.amp.value), 0.001);
+        scale = state.numericScale;
+      }
+
+      const markersOnly = state.mode === "numeric";
+      drawTrace(voltageTrace, "#62d2ff", scale, state.mode === "analytic" ? phase : 0, markersOnly);
+      drawTrace(currentTrace, "#ffbe5c", scale, state.mode === "analytic" ? phase : 0, markersOnly);
+
+    }
+
+    function animate(now) {
+      const dt = Math.min(0.05, (now - state.lastFrame) / 1000);
+      state.lastFrame = now;
+      if (!state.paused) {
+        if (state.mode === "analytic") {
+          const visualCyclesPerSecond = Number(el.speed.value);
+          state.t += dt * visualCyclesPerSecond / state.params.f;
+        } else {
+          advanceNumerical(dt);
+        }
+        draw();
+      }
+      requestAnimationFrame(animate);
+    }
+
+    window.addEventListener("resize", resizeCanvas);
+    allocateNumericalArrays(N);
+    setModeButton();
+    updateReactanceFill();
+    updateModel();
+    resizeCanvas();
+    requestAnimationFrame(animate);
+  </script>
+</body>
+</html>

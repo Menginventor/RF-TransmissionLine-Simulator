@@ -325,16 +325,16 @@
     <aside>
       <h1>RF Line Simulator</h1>
       <p class="byline">by E26BYK</p>
-      <p class="sub">Lossless <code>Z0 = 50 ohm</code> transmission line with analytical and RK4 numerical modes.</p>
+      <p class="sub">Lossless <code>Z0 = 50 ohm</code> transmission line with analytical and Yee-grid RK4 numerical modes.</p>
 
       <section class="group">
         <p class="group-title">Solver</p>
         <div class="segmented" aria-label="Solver mode">
           <button type="button" class="active" data-mode="analytic">Analytical</button>
-          <button type="button" data-mode="numeric">Numerical RK4</button>
+          <button type="button" data-mode="numeric">Yee Grid RK4</button>
         </div>
         <label id="elementsControl" hidden>
-          RK elements
+          Yee cells
           <select id="elements">
             <option value="20">20</option>
             <option value="50">50</option>
@@ -526,17 +526,17 @@
 
     function allocateNumericalArrays(count) {
       N = count;
-      state.numV = new Float64Array(N);
+      state.numV = new Float64Array(N + 1);
       state.numI = new Float64Array(N);
-      state.k1V = new Float64Array(N);
+      state.k1V = new Float64Array(N + 1);
       state.k1I = new Float64Array(N);
-      state.k2V = new Float64Array(N);
+      state.k2V = new Float64Array(N + 1);
       state.k2I = new Float64Array(N);
-      state.k3V = new Float64Array(N);
+      state.k3V = new Float64Array(N + 1);
       state.k3I = new Float64Array(N);
-      state.k4V = new Float64Array(N);
+      state.k4V = new Float64Array(N + 1);
       state.k4I = new Float64Array(N);
-      state.tempV = new Float64Array(N);
+      state.tempV = new Float64Array(N + 1);
       state.tempI = new Float64Array(N);
       resetNumerical();
     }
@@ -706,7 +706,7 @@
       } else {
         const xNote = xLoad > 0 ? `, series L = ${loadL.toExponential(3)} H` : xLoad < 0 ? `, series C = ${loadC.toExponential(3)} F` : "";
         const loadText = isNumericShort ? "short boundary" : `Rload = ${rLoad.toPrecision(4)} ohm${xNote}`;
-        readouts.model.textContent = `Numerical RK4, ${N} elements, length ${lenLambda.toFixed(2)} lambda0, Rs = 50 ohm, ${loadText}`;
+        readouts.model.textContent = `Yee-grid RK4, ${N + 1} voltage nodes, ${N} current edges, length ${lenLambda.toFixed(2)} lambda0, Rs = 50 ohm, ${loadText}`;
       }
 
       state.V = V;
@@ -763,21 +763,22 @@
     function numericalDerivatives(t, v, i, loadState, dv, di) {
       const { lCell, cCell, rs, isNumericShort } = state.params;
       const vs = sourceAt(t);
-      const load = loadCurrentAndDerivative(v[N - 1], loadState);
+      const load = loadCurrentAndDerivative(v[N], loadState);
+      const cEnd = 0.5 * cCell;
 
       for (let k = 0; k < N; k++) {
-        const leftVoltage = k === 0 ? vs - rs * i[k] : v[k - 1];
-        const rightVoltage = isNumericShort && k === N - 1 ? 0 : v[k];
-        di[k] = (leftVoltage - rightVoltage) / lCell;
+        const rightVoltage = isNumericShort && k === N - 1 ? 0 : v[k + 1];
+        di[k] = (v[k] - rightVoltage) / lCell;
       }
 
-      for (let k = 0; k < N; k++) {
-        if (isNumericShort && k === N - 1) {
-          dv[k] = 0;
-        } else {
-          const nextCurrent = k === N - 1 ? load.iLoad : i[k + 1];
-          dv[k] = (i[k] - nextCurrent) / cCell;
-        }
+      dv[0] = ((vs - v[0]) / rs - i[0]) / cEnd;
+      for (let k = 1; k < N; k++) {
+        dv[k] = (i[k - 1] - i[k]) / cCell;
+      }
+      if (isNumericShort) {
+        dv[N] = 0;
+      } else {
+        dv[N] = (i[N - 1] - load.iLoad) / cEnd;
       }
 
       return load.dLoad;
@@ -789,34 +790,43 @@
       const i = state.numI;
       const tv = state.tempV;
       const ti = state.tempI;
+      const nodeCount = N + 1;
 
       state.k1Load = numericalDerivatives(state.simTime, v, i, state.numLoad, state.k1V, state.k1I);
-      for (let k = 0; k < N; k++) {
+      for (let k = 0; k < nodeCount; k++) {
         tv[k] = v[k] + 0.5 * dt * state.k1V[k];
+      }
+      for (let k = 0; k < N; k++) {
         ti[k] = i[k] + 0.5 * dt * state.k1I[k];
       }
       state.tempLoad = state.numLoad + 0.5 * dt * state.k1Load;
 
       state.k2Load = numericalDerivatives(state.simTime + 0.5 * dt, tv, ti, state.tempLoad, state.k2V, state.k2I);
-      for (let k = 0; k < N; k++) {
+      for (let k = 0; k < nodeCount; k++) {
         tv[k] = v[k] + 0.5 * dt * state.k2V[k];
+      }
+      for (let k = 0; k < N; k++) {
         ti[k] = i[k] + 0.5 * dt * state.k2I[k];
       }
       state.tempLoad = state.numLoad + 0.5 * dt * state.k2Load;
 
       state.k3Load = numericalDerivatives(state.simTime + 0.5 * dt, tv, ti, state.tempLoad, state.k3V, state.k3I);
-      for (let k = 0; k < N; k++) {
+      for (let k = 0; k < nodeCount; k++) {
         tv[k] = v[k] + dt * state.k3V[k];
+      }
+      for (let k = 0; k < N; k++) {
         ti[k] = i[k] + dt * state.k3I[k];
       }
       state.tempLoad = state.numLoad + dt * state.k3Load;
 
       state.k4Load = numericalDerivatives(state.simTime + dt, tv, ti, state.tempLoad, state.k4V, state.k4I);
-      for (let k = 0; k < N; k++) {
+      for (let k = 0; k < nodeCount; k++) {
         v[k] += dt * (state.k1V[k] + 2 * state.k2V[k] + 2 * state.k3V[k] + state.k4V[k]) / 6;
+      }
+      for (let k = 0; k < N; k++) {
         i[k] += dt * (state.k1I[k] + 2 * state.k2I[k] + 2 * state.k3I[k] + state.k4I[k]) / 6;
       }
-      if (state.params.isNumericShort) v[N - 1] = 0;
+      if (p.isNumericShort) v[N] = 0;
       state.numLoad += dt * (state.k1Load + 2 * state.k2Load + 2 * state.k3Load + state.k4Load) / 6;
       state.simTime += dt;
       state.t = state.simTime;
@@ -863,7 +873,7 @@
       ctx.stroke();
     }
 
-    function drawTrace(values, color, scale, phase, markersOnly) {
+    function drawTrace(values, color, scale, phase, markersOnly, positionOf = null) {
       const rect = canvas.getBoundingClientRect();
       const w = rect.width;
       const h = rect.height;
@@ -879,7 +889,8 @@
 
       values.forEach((phasor, k) => {
         const instant = phasor.re * Math.cos(phase) - phasor.im * Math.sin(phase);
-        const x = pad.left + plotW * k / (values.length - 1);
+        const position = positionOf ? positionOf(k) : k / (values.length - 1);
+        const x = pad.left + plotW * position;
         const y = midY - ampY * instant / scale;
         if (markersOnly) {
           ctx.beginPath();
@@ -943,15 +954,29 @@
         : Array.from(state.numI, (value) => c(value * Z0));
       const maxV = Math.max(0.001, ...voltageTrace.map(abs));
       const maxIZ = Math.max(0.001, ...currentTrace.map(abs));
-      let scale = Math.max(maxV, maxIZ);
+      let scale = Math.max(maxV, maxIZ, Number(el.amp.value), 0.001);
       if (state.mode === "numeric") {
-        state.numericScale = Math.max(state.numericScale * 0.998, scale, Number(el.amp.value), 0.001);
+        state.numericScale = Math.max(state.numericScale * 0.998, scale);
         scale = state.numericScale;
       }
 
       const markersOnly = state.mode === "numeric";
-      drawTrace(voltageTrace, "#62d2ff", scale, state.mode === "analytic" ? phase : 0, markersOnly);
-      drawTrace(currentTrace, "#ffbe5c", scale, state.mode === "analytic" ? phase : 0, markersOnly);
+      drawTrace(
+        voltageTrace,
+        "#62d2ff",
+        scale,
+        state.mode === "analytic" ? phase : 0,
+        markersOnly,
+        state.mode === "numeric" ? (k) => k / N : null
+      );
+      drawTrace(
+        currentTrace,
+        "#ffbe5c",
+        scale,
+        state.mode === "analytic" ? phase : 0,
+        markersOnly,
+        state.mode === "numeric" ? (k) => (k + 0.5) / N : null
+      );
 
     }
 

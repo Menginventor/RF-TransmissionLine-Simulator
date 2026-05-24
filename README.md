@@ -6,11 +6,11 @@ Live demo: https://menginventor.github.io/RF-Line-Simulator/
 
 ## Overview
 
-This project visualizes a lossless 50-ohm transmission line using both analytical and numerical RK4 simulation modes.
+This project visualizes a lossless 50-ohm transmission line using both analytical and Yee-grid RK4 numerical simulation modes.
 
 Features:
 - Analytical phasor solver for forward/reflected waves
-- Numerical RK4 time-domain simulation for distributed line behavior
+- Yee-grid RK4 time-domain simulation with voltage nodes and staggered current edges
 - Configurable source frequency, line velocity factor, electrical length, and load impedance
 - Predefined load presets: matched, open, short
 - Real-time voltage and current waveform rendering
@@ -25,7 +25,7 @@ Features:
    - velocity factor
    - line length in wavelengths
    - load resistance and reactance
-3. Switch between `Analytical` and `Numerical RK4` modes.
+3. Switch between `Analytical` and `Yee Grid RK4` modes.
 4. Use `Reset` to restart the numeric simulation and `Pause` to freeze the animation.
 
 ## Simulation Modes
@@ -38,12 +38,13 @@ Features:
 - Displays instantaneous voltage and current traces from the resulting phasor at the chosen drive frequency.
 - Best for understanding steady-state behavior and impedance matching.
 
-### Numerical RK4
+### Yee Grid RK4
 
-- Uses a fourth-order Runge-Kutta integrator to simulate the distributed line as a chain of discrete sections.
-- Advances the line state in time using voltage and current derivatives for each segment.
+- Uses a fourth-order Runge-Kutta integrator on a Yee-style spatial grid.
+- Stores voltage at nodes `V[k]` and current on staggered edges `I[k+1/2]`, so the numeric line is laid out as `V0 -- I0 -- V1 -- I1 -- V2`.
+- Advances edge currents from adjacent node-voltage differences and node voltages from neighboring edge-current differences.
 - Supports resistive, inductive, and capacitive load conditions with explicit time-domain dynamics.
-- Allows changing the number of discrete elements to trade off between accuracy and performance.
+- Allows changing the number of Yee cells to trade off between accuracy and performance.
 - Best for observing transient wave propagation, reflections, and dynamic behavior.
 
 ## Notes

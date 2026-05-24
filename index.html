@@ -253,6 +253,36 @@
       pointer-events: none;
     }
 
+    .plot-controls {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+      max-width: min(390px, calc(100% - 250px));
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .plot-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0;
+      min-height: 26px;
+      padding: 3px 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: rgba(27, 32, 40, 0.82);
+    }
+
+    .plot-toggle input {
+      margin: 0;
+      accent-color: var(--accent);
+    }
+
     .key {
       display: inline-flex;
       align-items: center;
@@ -316,6 +346,18 @@
 
       .readouts {
         grid-template-columns: repeat(2, minmax(120px, 1fr));
+      }
+
+      .legend {
+        gap: 10px;
+        font-size: 12px;
+      }
+
+      .plot-controls {
+        top: auto;
+        right: 10px;
+        bottom: 8px;
+        max-width: calc(100% - 20px);
       }
     }
   </style>
@@ -427,6 +469,11 @@
           <span class="key"><span class="swatch" style="background: var(--voltage)"></span>Voltage</span>
           <span class="key"><span class="swatch" style="background: var(--current)"></span>Current x 50 ohm</span>
         </div>
+        <div class="plot-controls" aria-label="Visible plots">
+          <label class="plot-toggle"><input id="showTotal" type="checkbox" checked>V-I Total</label>
+          <label class="plot-toggle"><input id="showForward" type="checkbox" checked>V-I Forward</label>
+          <label class="plot-toggle"><input id="showReflect" type="checkbox" checked>V-I Reflect</label>
+        </div>
       </div>
 
       <div class="footer">
@@ -460,6 +507,11 @@
       gamma: document.getElementById("gammaOut"),
       vswr: document.getElementById("vswrOut"),
       model: document.getElementById("modelOut")
+    };
+    const plotToggles = {
+      total: document.getElementById("showTotal"),
+      forward: document.getElementById("showForward"),
+      reflect: document.getElementById("showReflect")
     };
 
     const state = {
@@ -574,6 +626,10 @@
     resetButton.addEventListener("click", () => {
       resetNumerical();
       draw();
+    });
+
+    Object.values(plotToggles).forEach((toggle) => {
+      toggle.addEventListener("change", draw);
     });
 
     function setLoad(r, x) {
@@ -856,31 +912,29 @@
       draw();
     }
 
-    function drawGrid(w, h, pad) {
+    function drawGrid(panel, pad) {
       ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--grid");
       ctx.lineWidth = 1;
       ctx.beginPath();
+      const plotW = panel.width - pad.left - pad.right;
+      const plotH = panel.height - pad.top - pad.bottom;
       for (let i = 0; i <= 8; i++) {
-        const x = pad.left + (w - pad.left - pad.right) * i / 8;
-        ctx.moveTo(x, pad.top);
-        ctx.lineTo(x, h - pad.bottom);
+        const x = panel.x + pad.left + plotW * i / 8;
+        ctx.moveTo(x, panel.y + pad.top);
+        ctx.lineTo(x, panel.y + panel.height - pad.bottom);
       }
-      for (let i = 0; i <= 6; i++) {
-        const y = pad.top + (h - pad.top - pad.bottom) * i / 6;
-        ctx.moveTo(pad.left, y);
-        ctx.lineTo(w - pad.right, y);
+      for (let i = 0; i <= 4; i++) {
+        const y = panel.y + pad.top + plotH * i / 4;
+        ctx.moveTo(panel.x + pad.left, y);
+        ctx.lineTo(panel.x + panel.width - pad.right, y);
       }
       ctx.stroke();
     }
 
-    function drawTrace(values, color, scale, phase, markersOnly, positionOf = null) {
-      const rect = canvas.getBoundingClientRect();
-      const w = rect.width;
-      const h = rect.height;
-      const pad = { left: 58, right: 58, top: 46, bottom: 38 };
-      const plotW = w - pad.left - pad.right;
-      const midY = pad.top + (h - pad.top - pad.bottom) / 2;
-      const ampY = (h - pad.top - pad.bottom) * 0.42;
+    function drawTrace(values, color, scale, phase, markersOnly, panel, pad, positionOf = null) {
+      const plotW = panel.width - pad.left - pad.right;
+      const midY = panel.y + pad.top + (panel.height - pad.top - pad.bottom) / 2;
+      const ampY = (panel.height - pad.top - pad.bottom) * 0.42;
 
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
@@ -890,7 +944,7 @@
       values.forEach((phasor, k) => {
         const instant = phasor.re * Math.cos(phase) - phasor.im * Math.sin(phase);
         const position = positionOf ? positionOf(k) : k / (values.length - 1);
-        const x = pad.left + plotW * position;
+        const x = panel.x + pad.left + plotW * position;
         const y = midY - ampY * instant / scale;
         if (markersOnly) {
           ctx.beginPath();
@@ -906,32 +960,77 @@
       if (!markersOnly) ctx.stroke();
     }
 
-    function drawAxes(w, h, pad) {
+    function drawAxes(panel, pad, label) {
       ctx.strokeStyle = "rgba(255, 255, 255, 0.42)";
       ctx.lineWidth = 1;
       ctx.beginPath();
-      const midY = pad.top + (h - pad.top - pad.bottom) / 2;
-      ctx.moveTo(pad.left, midY);
-      ctx.lineTo(w - pad.right, midY);
-      ctx.moveTo(pad.left, pad.top);
-      ctx.lineTo(pad.left, h - pad.bottom);
+      const midY = panel.y + pad.top + (panel.height - pad.top - pad.bottom) / 2;
+      ctx.moveTo(panel.x + pad.left, midY);
+      ctx.lineTo(panel.x + panel.width - pad.right, midY);
+      ctx.moveTo(panel.x + pad.left, panel.y + pad.top);
+      ctx.lineTo(panel.x + pad.left, panel.y + panel.height - pad.bottom);
       ctx.stroke();
 
       ctx.fillStyle = "rgba(242, 245, 248, 0.75)";
-      ctx.font = "20px system-ui, sans-serif";
-      ctx.save();
-      ctx.translate(20, midY);
-      ctx.rotate(-Math.PI / 2);
-      ctx.textAlign = "center";
-      ctx.fillText("Source", 0, 0);
-      ctx.restore();
-      ctx.save();
-      ctx.translate(w - 20, midY);
-      ctx.rotate(-Math.PI / 2);
-      ctx.textAlign = "center";
-      ctx.fillText("Load", 0, 0);
-      ctx.restore();
+      ctx.font = "13px system-ui, sans-serif";
       ctx.textAlign = "left";
+      ctx.fillText(label, panel.x + pad.left + 8, panel.y + pad.top + 18);
+      ctx.fillStyle = "rgba(242, 245, 248, 0.55)";
+      ctx.font = "12px system-ui, sans-serif";
+      ctx.fillText("Source", panel.x + pad.left, panel.y + panel.height - 9);
+      ctx.textAlign = "right";
+      ctx.fillText("Load", panel.x + panel.width - pad.right, panel.y + panel.height - 9);
+      ctx.textAlign = "left";
+    }
+
+    function numericCurrentAtVoltageNodes() {
+      const values = new Array(N + 1);
+      for (let k = 0; k <= N; k++) {
+        if (k === 0) {
+          values[k] = state.numI[0] * Z0;
+        } else if (k === N) {
+          values[k] = state.numI[N - 1] * Z0;
+        } else {
+          values[k] = 0.5 * (state.numI[k - 1] + state.numI[k]) * Z0;
+        }
+      }
+      return values;
+    }
+
+    function buildWavePanels() {
+      const phase = state.t * state.params.omega;
+      const voltage = state.mode === "analytic"
+        ? state.V
+        : Array.from(state.numV, (value) => c(value));
+      const currentZ = state.mode === "analytic"
+        ? state.I.map((i) => c(i.re * Z0, i.im * Z0))
+        : numericCurrentAtVoltageNodes().map((value) => c(value));
+      const forwardV = voltage.map((v, k) => c(0.5 * (v.re + currentZ[k].re), 0.5 * (v.im + currentZ[k].im)));
+      const reflectedV = voltage.map((v, k) => c(0.5 * (v.re - currentZ[k].re), 0.5 * (v.im - currentZ[k].im)));
+
+      return [
+        {
+          key: "total",
+          label: "V-I Total",
+          voltage,
+          currentZ,
+          phase: state.mode === "analytic" ? phase : 0
+        },
+        {
+          key: "forward",
+          label: "V-I Forward",
+          voltage: forwardV,
+          currentZ: forwardV,
+          phase: state.mode === "analytic" ? phase : 0
+        },
+        {
+          key: "reflect",
+          label: "V-I Reflect",
+          voltage: reflectedV,
+          currentZ: reflectedV.map((v) => c(-v.re, -v.im)),
+          phase: state.mode === "analytic" ? phase : 0
+        }
+      ];
     }
 
     function draw() {
@@ -940,20 +1039,13 @@
       const h = rect.height;
       if (!w || !h || !state.params.omega) return;
 
-      const pad = { left: 58, right: 58, top: 46, bottom: 38 };
       ctx.clearRect(0, 0, w, h);
-      drawGrid(w, h, pad);
-      drawAxes(w, h, pad);
+      const pad = { left: 58, right: 58, top: 34, bottom: 28 };
+      const panels = buildWavePanels().filter((panel) => plotToggles[panel.key].checked);
+      if (!panels.length) return;
 
-      const phase = state.t * state.params.omega;
-      const voltageTrace = state.mode === "analytic"
-        ? state.V
-        : Array.from(state.numV, (value) => c(value));
-      const currentTrace = state.mode === "analytic"
-        ? state.I.map((i) => c(i.re * Z0, i.im * Z0))
-        : Array.from(state.numI, (value) => c(value * Z0));
-      const maxV = Math.max(0.001, ...voltageTrace.map(abs));
-      const maxIZ = Math.max(0.001, ...currentTrace.map(abs));
+      const maxV = Math.max(0.001, ...panels.flatMap((panel) => panel.voltage.map(abs)));
+      const maxIZ = Math.max(0.001, ...panels.flatMap((panel) => panel.currentZ.map(abs)));
       let scale = Math.max(maxV, maxIZ, Number(el.amp.value), 0.001);
       if (state.mode === "numeric") {
         state.numericScale = Math.max(state.numericScale * 0.998, scale);
@@ -961,22 +1053,16 @@
       }
 
       const markersOnly = state.mode === "numeric";
-      drawTrace(
-        voltageTrace,
-        "#62d2ff",
-        scale,
-        state.mode === "analytic" ? phase : 0,
-        markersOnly,
-        state.mode === "numeric" ? (k) => k / N : null
-      );
-      drawTrace(
-        currentTrace,
-        "#ffbe5c",
-        scale,
-        state.mode === "analytic" ? phase : 0,
-        markersOnly,
-        state.mode === "numeric" ? (k) => (k + 0.5) / N : null
-      );
+      const gap = 8;
+      const panelH = (h - gap * (panels.length - 1)) / panels.length;
+      panels.forEach((data, index) => {
+        const panel = { x: 0, y: index * (panelH + gap), width: w, height: panelH };
+        const positionOf = state.mode === "numeric" ? (k) => k / N : null;
+        drawGrid(panel, pad);
+        drawAxes(panel, pad, data.label);
+        drawTrace(data.voltage, "#62d2ff", scale, data.phase, markersOnly, panel, pad, positionOf);
+        drawTrace(data.currentZ, "#ffbe5c", scale, data.phase, markersOnly, panel, pad, positionOf);
+      });
 
     }
 

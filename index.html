@@ -134,7 +134,7 @@
   <script>
     const Z0 = 50;
     let N = 200;
-    const C0 = 299792458;
+    const C0 = 299792458; //Speed of light in vacuum in m/s
     const TWO_PI = Math.PI * 2;
 
     const ids = [
@@ -373,13 +373,13 @@
       const rawRLoad = Number(el.rLoad.value);
       const xLoad = Number(el.xLoad.value);
 
-      const zLoad = c(rawRLoad, xLoad);
+      const zLoad = c(rawRLoad, xLoad); // Make complex load impedance for reflection coefficient calculation, even if it's not used directly in numerical mode.
 
       // Reflection coefficient (ideal load)
       const gamma = div(
         sub(zLoad, c(Z0)),
         add(zLoad, c(Z0))
-      );
+      );// eq[1] gamma = (Zload - Z0) / (Zload + Z0)
 
       // =========================================================
       // Analytical Mode
@@ -410,12 +410,12 @@
         // sample the line at a number of points to get the voltage and current distribution
         for (let k = 0; k < analyticPoints; k++) {
 
-          const samplePos = length * k / (analyticPoints - 1);
+          const zPos = length * k / (analyticPoints - 1); //z is the position along the transmission line.
 
           // Forward wave
           const forward = mul(
             Vplus,
-            expj(-beta * samplePos)
+            expj(-beta * zPos)
           );
 
           // Reflection seen from source
@@ -427,7 +427,7 @@
           // Reflected wave
           const reflected = mul(
             mul(Vplus, reflectedAtSourceFactor),
-            expj(beta * samplePos)
+            expj(beta * zPos)
           );
 
           // Total voltage/current

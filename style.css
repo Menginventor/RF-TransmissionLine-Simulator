@@ -288,6 +288,38 @@ canvas {
   border-radius: 999px;
 }
 
+.swatch-dashed {
+  height: 0;
+  border-top: 3px dashed var(--text);
+  background: transparent;
+  border-radius: 0;
+}
+
+.swatch-marker {
+  position: relative;
+  height: 8px;
+  background: transparent;
+}
+
+.swatch-marker::before,
+.swatch-marker::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text);
+}
+
+.swatch-marker::before {
+  left: 4px;
+}
+
+.swatch-marker::after {
+  right: 4px;
+}
+
 .footer {
   display: flex;
   align-items: center;

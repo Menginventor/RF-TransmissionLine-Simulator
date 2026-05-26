@@ -19,8 +19,8 @@
       <section class="group">
         <p class="group-title">Solver</p>
         <div class="segmented" aria-label="Solver mode">
-          <button type="button" class="active" data-mode="analytic">Analytical</button>
-          <button type="button" data-mode="numeric">Yee Grid RK4</button>
+          <button type="button" class="active" data-solver="analytic">Analytical</button>
+          <button type="button" data-solver="numeric">Yee Grid RK4</button>
         </div>
         <label id="elementsControl" hidden>
           Yee cells
@@ -113,6 +113,8 @@
         <div class="legend">
           <span class="key"><span class="swatch" style="background: var(--voltage)"></span>Voltage</span>
           <span class="key"><span class="swatch" style="background: var(--current)"></span>Current x 50 ohm</span>
+          <span class="key"><span class="swatch swatch-dashed"></span>Analytical</span>
+          <span class="key"><span class="swatch swatch-marker"></span>Numerical</span>
         </div>
         <div class="plot-controls" aria-label="Visible plots">
           <label class="plot-toggle"><input id="showTotal" type="checkbox" checked>V-I Total</label>
@@ -136,7 +138,7 @@
     const RS = Z0; // Source resistance, set equal to Z0 for maximum power transfer and to simplify the source voltage calculation in numerical mode.
     const sourceAmp = 1; // use constant amplitude for now. 
 
-    let N = 200;
+    let N = 200; // Numerical points, set by the "elements" select in numeric mode, ignored in analytical mode. 
     const C0 = 299792458; //Speed of light in vacuum in m/s
     const TWO_PI = Math.PI * 2;
 
@@ -165,7 +167,10 @@
     const state = {
       paused: false,
       preset: "matched",
-      mode: "analytic",
+      solvers: {
+        analytic: true,
+        numeric: false
+      },
       t: 0,
       simTime: 0,
       lastFrame: performance.now(),
@@ -257,11 +262,14 @@
       });
     });
 
-    document.querySelectorAll("[data-mode]").forEach((button) => {
+    document.querySelectorAll("[data-solver]").forEach((button) => {
       button.addEventListener("click", () => {
-        state.mode = button.dataset.mode;
+        const solver = button.dataset.solver;
+        const enabledCount = Object.values(state.solvers).filter(Boolean).length;
+        if (state.solvers[solver] && enabledCount === 1) return;
+        state.solvers[solver] = !state.solvers[solver];
         setModeButton();
-        resetNumerical();
+        if (solver === "numeric" && state.solvers.numeric) resetNumerical();
         updateModel();
       });
     });
@@ -305,10 +313,10 @@
     }
 
     function setModeButton() {
-      document.querySelectorAll("[data-mode]").forEach((button) => {
-        button.classList.toggle("active", button.dataset.mode === state.mode);
+      document.querySelectorAll("[data-solver]").forEach((button) => {
+        button.classList.toggle("active", state.solvers[button.dataset.solver]);
       });
-      document.getElementById("elementsControl").hidden = state.mode !== "numeric";
+      document.getElementById("elementsControl").hidden = !state.solvers.numeric;
     }
 
     // Create a simple complex number object with real and imaginary parts.
@@ -360,19 +368,20 @@
       const f0 = Number(el.f0.value) * 1e6;
       const f = Number(el.f.value) * 1e6;
 
-      const vf = Number(el.vf.value);
+      const vf = Number(el.vf.value); // Velocity factor.
       const lenLambda = Number(el.lenLambda.value);
 
-      const vp = C0 * vf;
+      const vp = C0 * vf; // Phase velocity.
       const length = lenLambda * vp / f0;
 
       const dz = length / N;
 
-      const beta = TWO_PI * f / vp;
+      const beta = TWO_PI * f / vp; // Phase-constant.
       const omega = TWO_PI * f;
 
       const sourceAmp = 1; // use constant amplitude for now.
 
+      // Load impedant and reactant value from html elements.
       const rawRLoad = Number(el.rLoad.value);
       const xLoad = Number(el.xLoad.value);
 
@@ -387,112 +396,91 @@
       // =========================================================
       // Analytical Mode
       // =========================================================
-      if (state.mode === "analytic") {
+      // -----------------------------------------
+      // Reflection / VSWR
+      // -----------------------------------------
+      const idealGammaMag = Math.min(abs(gamma), 0.999999);
 
-        // -----------------------------------------
-        // Reflection / VSWR
-        // -----------------------------------------
-        const gammaMag = Math.min(abs(gamma), 0.999999);
+      const idealVswr =
+        idealGammaMag >= 0.999
+          ? Infinity
+          : (1 + idealGammaMag) / (1 - idealGammaMag);
 
-        const vswr =
-          gammaMag >= 0.999
-            ? Infinity
-            : (1 + gammaMag) / (1 - gammaMag);
+      // -----------------------------------------
+      // Analytical Voltage / Current Solution
+      // -----------------------------------------
+      const V = [];
+      const I = [];
 
-        // -----------------------------------------
-        // Analytical Voltage / Current Solution
-        // -----------------------------------------
-        const V = [];
-        const I = [];
+      //const Vplus = c(sourceAmp / 2, 0);
+      const Vplus = mul(
+        c(sourceAmp, 0),
+        c(Z0 / (RS + Z0), 0)
+      );
 
-        //const Vplus = c(sourceAmp / 2, 0);
-        const Vplus = mul(
-          c(sourceAmp, 0),
-          c(Z0 / (RS + Z0), 0)
+
+      const analyticPoints = 401; // pre define the number of points to sample the analytical solution for consistent display and performance. Must be odd to include the endpoint.
+
+
+      // sample the line at a number of points to get the voltage and current distribution
+      for (let k = 0; k < analyticPoints; k++) {
+
+        const zPos = length * k / (analyticPoints - 1); //z is the position along the transmission line.
+
+        // Forward wave
+        const forward = mul(
+          Vplus,
+          expj(-beta * zPos)
         );
 
+        // Reflection seen from source
+        const reflectedAtSourceFactor = mul(
+          gamma,
+          expj(-2 * beta * length)
+        );
 
-        const analyticPoints = 401; // pre define the number of points to sample the analytical solution for consistent display and performance. Must be odd to include the endpoint.
+        // Reflected wave
+        const reflected = mul(
+          mul(Vplus, reflectedAtSourceFactor),
+          expj(beta * zPos)
+        );
 
+        // Total voltage/current
+        const vk = add(forward, reflected);
 
-        // sample the line at a number of points to get the voltage and current distribution
-        for (let k = 0; k < analyticPoints; k++) {
+        const ik = div(
+          sub(forward, reflected),
+          c(Z0)
+        );
 
-          const zPos = length * k / (analyticPoints - 1); //z is the position along the transmission line.
-
-          // Forward wave
-          const forward = mul(
-            Vplus,
-            expj(-beta * zPos)
-          );
-
-          // Reflection seen from source
-          const reflectedAtSourceFactor = mul(
-            gamma,
-            expj(-2 * beta * length)
-          );
-
-          // Reflected wave
-          const reflected = mul(
-            mul(Vplus, reflectedAtSourceFactor),
-            expj(beta * zPos)
-          );
-
-          // Total voltage/current
-          const vk = add(forward, reflected);
-
-          const ik = div(
-            sub(forward, reflected),
-            c(Z0)
-          );
-
-          V.push(vk);
-          I.push(ik);
-        }
-
-        // -----------------------------------------
-        // Readouts
-        // -----------------------------------------
-        const elecDeg = 360 * lenLambda * f / f0;
-
-        readouts.length.textContent =
-          `${length.toPrecision(4)} m`;
-
-        readouts.elec.textContent =
-          `${elecDeg.toFixed(1)} deg`;
-
-        readouts.gamma.textContent =
-          gammaMag.toFixed(3);
-
-        readouts.vswr.textContent =
-          Number.isFinite(vswr)
-            ? vswr.toFixed(2)
-            : "infinite";
-
-        readouts.model.textContent =
-          `Analytical phasor, length ${lenLambda.toFixed(2)} lambda0, ` +
-          `load ${formatOhms(zLoad)}, ` +
-          `f/f0 = ${(f / f0).toFixed(3)}`;
-
-        // -----------------------------------------
-        // Store State
-        // -----------------------------------------
-        state.V = V;
-        state.I = I;
-
-        state.params = {
-          omega,
-          f,
-          f0,
-          length,
-          dz,
-          gammaMag,
-          sourceAmp
-        };
-
-        draw();
-        return;
+        V.push(vk);
+        I.push(ik);
       }
+
+      // -----------------------------------------
+      // Readouts
+      // -----------------------------------------
+      const elecDeg = 360 * lenLambda * f / f0;
+
+      readouts.length.textContent =
+        `${length.toPrecision(4)} m`;
+
+      readouts.elec.textContent =
+        `${elecDeg.toFixed(1)} deg`;
+
+      readouts.gamma.textContent =
+        idealGammaMag.toFixed(3);
+
+      readouts.vswr.textContent =
+        Number.isFinite(idealVswr)
+          ? idealVswr.toFixed(2)
+          : "infinite";
+
+      // -----------------------------------------
+      // Store Analytical State
+      // -----------------------------------------
+      state.V = V;
+      state.I = I;
 
       // =========================================================
       // Numerical Mode
@@ -590,8 +578,6 @@
       // -----------------------------------------
       // Readouts
       // -----------------------------------------
-      const elecDeg = 360 * lenLambda * f / f0;
-
       readouts.length.textContent =
         `${length.toPrecision(4)} m`;
 
@@ -618,21 +604,21 @@
           ? "short boundary"
           : `Rload = ${rLoad.toPrecision(4)} ohm${xNote}`;
 
+      const solverText = [
+        state.solvers.analytic ? "Analytical phasor" : "",
+        state.solvers.numeric ? `Yee-grid RK4 (${N + 1} V nodes, ${N} I edges)` : ""
+      ].filter(Boolean).join(" + ");
+
       readouts.model.textContent =
-        `Yee-grid RK4, ` +
-        `${N + 1} voltage nodes, ` +
-        `${N} current edges, ` +
+        `${solverText}, ` +
         `length ${lenLambda.toFixed(2)} lambda0, ` +
-        `Rs = 50 ohm, ` +
+        `load ${formatOhms(zLoad)}, ` +
+        `f/f0 = ${(f / f0).toFixed(3)}, ` +
         `${loadText}`;
 
       // -----------------------------------------
       // Store State
       // -----------------------------------------
-      // These variable is not use as we using numerical arrays, but we clear it for consistency and to avoid confusion.
-      state.V = [];
-      state.I = [];
-
       state.params = {
         omega,
         f,
@@ -664,7 +650,7 @@
     }
 
     function sourceAt(t) {
-      return state.params.amp * Math.sin(state.params.omega * t);
+      return state.params.sourceAmp * Math.sin(state.params.omega * t);
     }
 
     function loadCurrentAndDerivative(vLast, loadState) {
@@ -814,14 +800,17 @@
       ctx.stroke();
     }
 
-    function drawTrace(values, color, scale, phase, markersOnly, panel, pad, positionOf = null) {
+    function drawTrace(values, color, scale, phase, options, panel, pad, positionOf = null) {
+      const { dashed = false, markersOnly = false } = options;
       const plotW = panel.width - pad.left - pad.right;
       const midY = panel.y + pad.top + (panel.height - pad.top - pad.bottom) / 2;
       const ampY = (panel.height - pad.top - pad.bottom) * 0.42;
 
+      ctx.save();
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
       ctx.lineWidth = 2.5;
+      ctx.setLineDash(dashed ? [8, 6] : []);
       if (!markersOnly) ctx.beginPath();
 
       values.forEach((phasor, k) => {
@@ -831,7 +820,7 @@
         const y = midY - ampY * instant / scale;
         if (markersOnly) {
           ctx.beginPath();
-          ctx.arc(x, y, 2.1, 0, TWO_PI);
+          ctx.arc(x, y, 2.25, 0, TWO_PI);
           ctx.fill();
         } else if (k === 0) {
           ctx.moveTo(x, y);
@@ -841,6 +830,7 @@
       });
 
       if (!markersOnly) ctx.stroke();
+      ctx.restore();
     }
 
     function drawAxes(panel, pad, label) {
@@ -880,16 +870,18 @@
       return values;
     }
 
-    function buildWavePanels() {
-      const phase = state.t * state.params.omega;
-      const voltage = state.mode === "analytic"
+    function buildWavePanelsFor(solver) {
+      const phaseTime = state.solvers.numeric ? state.simTime : state.t;
+      const phase = phaseTime * state.params.omega - Math.PI / 2;
+      const voltage = solver === "analytic"
         ? state.V
         : Array.from(state.numV, (value) => c(value));
-      const currentZ = state.mode === "analytic"
+      const currentZ = solver === "analytic"
         ? state.I.map((i) => c(i.re * Z0, i.im * Z0))
         : numericCurrentAtVoltageNodes().map((value) => c(value));
       const forwardV = voltage.map((v, k) => c(0.5 * (v.re + currentZ[k].re), 0.5 * (v.im + currentZ[k].im)));
       const reflectedV = voltage.map((v, k) => c(0.5 * (v.re - currentZ[k].re), 0.5 * (v.im - currentZ[k].im)));
+      const plotPhase = solver === "analytic" ? phase : 0;
 
       return [
         {
@@ -897,23 +889,34 @@
           label: "V-I Total",
           voltage,
           currentZ,
-          phase: state.mode === "analytic" ? phase : 0
+          phase: plotPhase
         },
         {
           key: "forward",
           label: "V-I Forward",
           voltage: forwardV,
           currentZ: forwardV,
-          phase: state.mode === "analytic" ? phase : 0
+          phase: plotPhase
         },
         {
           key: "reflect",
           label: "V-I Reflect",
           voltage: reflectedV,
           currentZ: reflectedV.map((v) => c(-v.re, -v.im)),
-          phase: state.mode === "analytic" ? phase : 0
+          phase: plotPhase
         }
       ];
+    }
+
+    function buildVisiblePanelSets() {
+      return [
+        state.solvers.analytic
+          ? { solver: "analytic", dashed: true, markersOnly: false, panels: buildWavePanelsFor("analytic") }
+          : null,
+        state.solvers.numeric
+          ? { solver: "numeric", dashed: false, markersOnly: true, panels: buildWavePanelsFor("numeric") }
+          : null
+      ].filter(Boolean);
     }
 
     function draw() {
@@ -924,27 +927,31 @@
 
       ctx.clearRect(0, 0, w, h);
       const pad = { left: 58, right: 58, top: 34, bottom: 28 };
-      const panels = buildWavePanels().filter((panel) => plotToggles[panel.key].checked);
-      if (!panels.length) return;
+      const panelSets = buildVisiblePanelSets();
+      const activeKeys = Object.keys(plotToggles).filter((key) => plotToggles[key].checked);
+      if (!panelSets.length || !activeKeys.length) return;
 
-      const maxV = Math.max(0.001, ...panels.flatMap((panel) => panel.voltage.map(abs)));
-      const maxIZ = Math.max(0.001, ...panels.flatMap((panel) => panel.currentZ.map(abs)));
+      const visiblePanels = panelSets.flatMap((set) => set.panels.filter((panel) => plotToggles[panel.key].checked));
+      const maxV = Math.max(0.001, ...visiblePanels.flatMap((panel) => panel.voltage.map(abs)));
+      const maxIZ = Math.max(0.001, ...visiblePanels.flatMap((panel) => panel.currentZ.map(abs)));
       let scale = Math.max(maxV, maxIZ, 1, 0.001);
-      if (state.mode === "numeric") {
+      if (state.solvers.numeric) {
         state.numericScale = Math.max(state.numericScale * 0.998, scale);
         scale = state.numericScale;
       }
 
-      const markersOnly = state.mode === "numeric";
       const gap = 8;
-      const panelH = (h - gap * (panels.length - 1)) / panels.length;
-      panels.forEach((data, index) => {
+      const panelH = (h - gap * (activeKeys.length - 1)) / activeKeys.length;
+      activeKeys.forEach((key, index) => {
         const panel = { x: 0, y: index * (panelH + gap), width: w, height: panelH };
-        const positionOf = state.mode === "numeric" ? (k) => k / N : null;
         drawGrid(panel, pad);
-        drawAxes(panel, pad, data.label);
-        drawTrace(data.voltage, "#62d2ff", scale, data.phase, markersOnly, panel, pad, positionOf);
-        drawTrace(data.currentZ, "#ffbe5c", scale, data.phase, markersOnly, panel, pad, positionOf);
+        drawAxes(panel, pad, panelSets[0].panels.find((data) => data.key === key).label);
+        panelSets.forEach((set) => {
+          const data = set.panels.find((candidate) => candidate.key === key);
+          const positionOf = set.solver === "numeric" ? (k) => k / N : null;
+          drawTrace(data.voltage, "#62d2ff", scale, data.phase, set, panel, pad, positionOf);
+          drawTrace(data.currentZ, "#ffbe5c", scale, data.phase, set, panel, pad, positionOf);
+        });
       });
 
     }
@@ -953,10 +960,11 @@
       const dt = Math.min(0.05, (now - state.lastFrame) / 1000);
       state.lastFrame = now;
       if (!state.paused) {
-        if (state.mode === "analytic") {
+        if (state.solvers.analytic) {
           const visualCyclesPerSecond = 1;
           state.t += dt * visualCyclesPerSecond / state.params.f;
-        } else {
+        }
+        if (state.solvers.numeric) {
           advanceNumerical(dt);
         }
         draw();

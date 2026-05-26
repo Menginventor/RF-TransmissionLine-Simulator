@@ -4,7 +4,7 @@ A browser-based RF transmission line simulator implemented as a single-page stat
 
 This repository was developed with AI-assisted support, including Codex, ChatGPT, and GitHub Copilot.
 
-Live demo: https://menginventor.github.io/RF-Line-Simulator/
+Live demo: https://menginventor.github.io/RF-TransmissionLine-Simulator/
 
 ## Overview
 
